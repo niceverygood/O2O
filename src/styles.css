@@ -326,6 +326,33 @@ button:disabled {
   overflow-x: auto;
 }
 
+.source-filter {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.source-filter button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.source-filter button.active {
+  border-color: #173f3a;
+  background: #173f3a;
+  color: #fff;
+}
+
 .chip {
   min-width: 58px;
   height: 34px;
@@ -376,6 +403,39 @@ button:disabled {
   gap: 7px;
 }
 
+.deal-badges,
+.detail-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.type-badge {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.type-badge.merchant {
+  background: #edf4ff;
+  color: #1d4ed8;
+}
+
+.type-badge.customer {
+  background: #eaf7f2;
+  color: #136554;
+}
+
+.type-badge.host {
+  background: #fff7ed;
+  color: var(--amber);
+}
+
 .deal-title-row,
 .price-row,
 .progress-label,
@@ -407,17 +467,23 @@ button:disabled {
 }
 
 .muted-line,
-.deadline-line {
+.deadline-line,
+.event-time-line {
   display: flex;
   align-items: center;
   gap: 5px;
 }
 
 .price-row span,
-.deadline-line {
+.deadline-line,
+.event-time-line {
   color: var(--accent);
   font-size: 13px;
   font-weight: 900;
+}
+
+.event-time-line {
+  margin: 0;
 }
 
 .price-row strong {
@@ -730,6 +796,31 @@ button:disabled {
   font-size: 20px;
 }
 
+.host-apply-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  margin: 14px 0 0;
+  border: 1px solid #c8eadf;
+  border-radius: 8px;
+  background: #f2fbf7;
+}
+
+.host-apply-box strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #136554;
+}
+
+.host-apply-box p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .menu-preview,
 .menu-select-list {
   display: flex;
@@ -964,6 +1055,10 @@ button:disabled {
   gap: 6px;
 }
 
+.segmented-control:has(:nth-child(4)) {
+  grid-template-columns: repeat(4, 1fr);
+}
+
 .segment,
 .method-button {
   min-height: 38px;
@@ -971,8 +1066,9 @@ button:disabled {
   border-radius: 8px;
   background: #fff;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .segment.active,
@@ -1176,9 +1272,45 @@ button:disabled {
   font-weight: 900;
 }
 
+.sale-type-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.sale-type-card {
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.sale-type-card strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.sale-type-card span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.sale-type-card.active {
+  border-color: var(--green);
+  background: #eaf7f2;
+}
+
 .method-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
 }
 

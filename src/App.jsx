@@ -27,7 +27,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { eventDefinitions, sampleDeals } from './data';
+import { eventDefinitions, sampleCommunityGroups, sampleDeals } from './data';
 import {
   clearEvents,
   exportEventsCsv,
@@ -44,8 +44,10 @@ import { clamp, discountedPrice, formatWon } from './utils';
 const fallbackImage =
   'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=900&q=80';
 const CREATED_DEALS_KEY = 'o2o_mvp_created_deals';
+const CUSTOMER_GROUPS_KEY = 'o2o_mvp_customer_groups';
 const CUSTOMER_ORDERS_KEY = 'o2o_mvp_customer_orders';
 const FAVORITES_KEY = 'o2o_mvp_favorite_deal_ids';
+const HOST_DEALS_KEY = 'o2o_mvp_host_deal_ids';
 
 function loadJson(key, fallback) {
   try {
@@ -67,6 +69,11 @@ function saveCreatedDeals(deals) {
   saveJson(CREATED_DEALS_KEY, deals);
 }
 
+function getDealPrice(deal) {
+  if (deal.source === 'customer' && deal.menu?.[0]?.price) return deal.menu[0].price;
+  return discountedPrice(deal.originalPrice, deal.discountRate);
+}
+
 function normalizeRoute(pathname) {
   if (['/customer', '/owner', '/dashboard'].includes(pathname)) return pathname;
   return '/';
@@ -79,11 +86,16 @@ function App() {
   const [customerScreen, setCustomerScreen] = useState(profile ? 'list' : 'onboarding');
   const [ownerScreen, setOwnerScreen] = useState('form');
   const [createdDeals, setCreatedDeals] = useState(() => loadCreatedDeals());
+  const [customerGroups, setCustomerGroups] = useState(() => loadJson(CUSTOMER_GROUPS_KEY, []));
   const [orders, setOrders] = useState(() => loadJson(CUSTOMER_ORDERS_KEY, []));
   const [favoriteIds, setFavoriteIds] = useState(() => loadJson(FAVORITES_KEY, []));
+  const [hostDealIds, setHostDealIds] = useState(() => loadJson(HOST_DEALS_KEY, []));
   const [selectedDeal, setSelectedDeal] = useState(() => loadCreatedDeals()[0] || sampleDeals[0]);
 
-  const deals = useMemo(() => [...createdDeals, ...sampleDeals], [createdDeals]);
+  const deals = useMemo(
+    () => [...createdDeals, ...customerGroups, ...sampleDeals, ...sampleCommunityGroups],
+    [createdDeals, customerGroups],
+  );
 
   useEffect(() => {
     const handlePopState = () => setRoute(normalizeRoute(window.location.pathname));
@@ -110,6 +122,8 @@ function App() {
   const addOwnerDeal = (ownerProduct) => {
     const deal = {
       id: `owner-${Date.now()}`,
+      source: 'merchant',
+      saleType: ownerProduct.saleType,
       category: ownerProduct.category,
       store: ownerProduct.storeName,
       title: ownerProduct.productName,
@@ -117,10 +131,14 @@ function App() {
       address: ownerProduct.pickupPlace,
       distance: '테스트 매장',
       deadline: ownerProduct.deadline,
+      methods: ownerProduct.methods,
+      stock: Number(ownerProduct.stock),
+      eventStart: ownerProduct.eventStart,
+      eventEnd: ownerProduct.eventEnd,
       originalPrice: Number(ownerProduct.originalPrice),
       discountRate: Number(ownerProduct.discountRate),
       current: 0,
-      target: Number(ownerProduct.maxQuantity),
+      target: Number(ownerProduct.saleType === 'instant' ? ownerProduct.stock : ownerProduct.maxQuantity),
       likes: 0,
       image: ownerProduct.image || fallbackImage,
       menu: [
@@ -139,6 +157,50 @@ function App() {
     });
     setSelectedDeal(deal);
     setOwnerScreen('done');
+  };
+
+  const createCustomerGroup = (draft) => {
+    const group = {
+      id: `customer-${Date.now()}`,
+      source: 'customer',
+      saleType: 'community',
+      category: draft.category,
+      store: `${profile?.neighborhood || '동네'} 호스트`,
+      title: draft.title,
+      description: draft.description || draft.memo,
+      address: draft.pickupPlace,
+      distance: '내 주변',
+      deadline: `${draft.deadlineDate} ${draft.deadlineTime}`,
+      methods: [draft.method],
+      originalPrice: Number(draft.expectedPrice || discountedPrice(draft.baseDeal.originalPrice, draft.baseDeal.discountRate)),
+      discountRate: 0,
+      current: 1,
+      target: Number(draft.maxPeople),
+      likes: 0,
+      image: draft.baseDeal.image || fallbackImage,
+      menu: [
+        {
+          id: `customer-menu-${Date.now()}`,
+          name: draft.title,
+          price: Number(draft.expectedPrice || discountedPrice(draft.baseDeal.originalPrice, draft.baseDeal.discountRate)),
+          option: draft.category,
+        },
+      ],
+    };
+    setCustomerGroups((current) => {
+      const next = [group, ...current];
+      saveJson(CUSTOMER_GROUPS_KEY, next);
+      return next;
+    });
+    setSelectedDeal(group);
+    track('group_created', {
+      deal_id: group.id,
+      source: 'customer',
+      category: group.category,
+      method: draft.method,
+      title: group.title,
+    });
+    return group;
   };
 
   const saveCustomerOrder = (order) => {
@@ -164,6 +226,15 @@ function App() {
       track('like_clicked', { deal_id: deal.id, active: !active, source: 'customer_tab' });
       return next;
     });
+  };
+
+  const applyHost = (deal) => {
+    setHostDealIds((current) => {
+      const next = current.includes(deal.id) ? current : [deal.id, ...current];
+      saveJson(HOST_DEALS_KEY, next);
+      return next;
+    });
+    track('host_applied', { deal_id: deal.id, method: deal.methods?.join(', ') });
   };
 
   if (route === '/') {
@@ -204,6 +275,7 @@ function App() {
               profile={profile}
               orders={orders}
               favoriteIds={favoriteIds}
+              hostDealIds={hostDealIds}
               selectedDeal={selectedDeal}
               screen={customerScreen}
               onProfileSubmit={handleProfileSubmit}
@@ -219,7 +291,9 @@ function App() {
               }}
               onScreen={setCustomerScreen}
               onOrderCreate={saveCustomerOrder}
+              onGroupCreate={createCustomerGroup}
               onToggleFavorite={toggleFavorite}
+              onHostApply={applyHost}
             />
           )}
           {route === '/owner' && (
@@ -342,13 +416,16 @@ function CustomerApp({
   profile,
   orders,
   favoriteIds,
+  hostDealIds,
   selectedDeal,
   screen,
   onProfileSubmit,
   onSelectDeal,
   onScreen,
   onOrderCreate,
+  onGroupCreate,
   onToggleFavorite,
+  onHostApply,
 }) {
   if (!profile || screen === 'onboarding') {
     return <Onboarding onSubmit={onProfileSubmit} />;
@@ -362,6 +439,8 @@ function CustomerApp({
         onScreen={onScreen}
         isFavorite={favoriteIds.includes(selectedDeal.id)}
         onToggleFavorite={onToggleFavorite}
+        hostMatched={Boolean(selectedDeal.hostMatched || hostDealIds.includes(selectedDeal.id))}
+        onHostApply={onHostApply}
       />
     );
   }
@@ -373,6 +452,7 @@ function CustomerApp({
         onBack={() => onScreen('detail')}
         onScreen={onScreen}
         onOrderCreate={onOrderCreate}
+        onGroupCreate={onGroupCreate}
       />
     );
   }
@@ -384,6 +464,7 @@ function CustomerApp({
         onBack={() => onScreen('detail')}
         onScreen={onScreen}
         onOrderCreate={onOrderCreate}
+        onGroupCreate={onGroupCreate}
       />
     );
   }
@@ -397,7 +478,14 @@ function CustomerApp({
   }
 
   if (screen === 'explore') {
-    return <ExploreTab deals={deals} onSelectDeal={onSelectDeal} onScreen={onScreen} />;
+    return (
+      <ExploreTab
+        deals={deals}
+        hostDealIds={hostDealIds}
+        onSelectDeal={onSelectDeal}
+        onScreen={onScreen}
+      />
+    );
   }
 
   if (screen === 'orders') {
@@ -408,6 +496,7 @@ function CustomerApp({
     return (
       <FavoritesTab
         favoriteDeals={deals.filter((deal) => favoriteIds.includes(deal.id))}
+        hostDealIds={hostDealIds}
         onSelectDeal={onSelectDeal}
         onScreen={onScreen}
       />
@@ -425,7 +514,15 @@ function CustomerApp({
     );
   }
 
-  return <DealList deals={deals} profile={profile} onSelectDeal={onSelectDeal} onScreen={onScreen} />;
+  return (
+    <DealList
+      deals={deals}
+      profile={profile}
+      hostDealIds={hostDealIds}
+      onSelectDeal={onSelectDeal}
+      onScreen={onScreen}
+    />
+  );
 }
 
 function Onboarding({ onSubmit }) {
@@ -513,16 +610,18 @@ function Onboarding({ onSubmit }) {
   );
 }
 
-function DealList({ deals, profile, onSelectDeal, onScreen }) {
+function DealList({ deals, profile, hostDealIds, onSelectDeal, onScreen }) {
   useScreenAnalytics('deal_list', { neighborhood: profile.neighborhood });
   const [category, setCategory] = useState('전체');
   const [query, setQuery] = useState('');
+  const [source, setSource] = useState('all');
 
-  const categories = ['전체', '카페', '식사', '간식', '편의점'];
+  const categories = ['전체', '카페', '식사', '간식', '편의점', '음식', '장보기/마트', '식재료', '생활용품', '기타'];
   const filtered = deals.filter((deal) => {
     const matchCategory = category === '전체' || deal.category === category;
-    const matchQuery = `${deal.title} ${deal.store}`.includes(query);
-    return matchCategory && matchQuery;
+    const matchSource = source === 'all' || deal.source === source;
+    const matchQuery = `${deal.title} ${deal.store} ${deal.description || ''}`.includes(query);
+    return matchCategory && matchSource && matchQuery;
   });
 
   return (
@@ -542,6 +641,26 @@ function DealList({ deals, profile, onSelectDeal, onScreen }) {
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="매장 또는 상품 검색" />
       </div>
 
+      <div className="source-filter">
+        {[
+          { id: 'all', label: '전체', icon: ShoppingBag },
+          { id: 'merchant', label: '사장님', icon: Store },
+          { id: 'customer', label: '사용자', icon: User },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            className={source === id ? 'active' : ''}
+            onClick={() => {
+              setSource(id);
+              track('source_filter_clicked', { source: id });
+            }}
+          >
+            <Icon size={15} />
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="chip-row">
         {categories.map((item) => (
           <button
@@ -559,25 +678,12 @@ function DealList({ deals, profile, onSelectDeal, onScreen }) {
 
       <div className="deal-list">
         {filtered.map((deal) => (
-          <button className="deal-card" key={deal.id} onClick={() => onSelectDeal(deal)}>
-            <img src={deal.image} alt="" />
-            <div className="deal-content">
-              <div className="deal-title-row">
-                <strong>{deal.title}</strong>
-                <span>{deal.deadline}</span>
-              </div>
-              <p>{deal.store}</p>
-              <p className="muted-line">
-                <MapPin size={14} />
-                {deal.address} · {deal.distance}
-              </p>
-              <Progress current={deal.current} target={deal.target} />
-              <div className="price-row">
-                <span>{deal.discountRate}% 할인</span>
-                <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
-              </div>
-            </div>
-          </button>
+          <DealCard
+            key={deal.id}
+            deal={deal}
+            hostMatched={Boolean(deal.hostMatched || hostDealIds.includes(deal.id))}
+            onClick={() => onSelectDeal(deal)}
+          />
         ))}
       </div>
 
@@ -586,7 +692,50 @@ function DealList({ deals, profile, onSelectDeal, onScreen }) {
   );
 }
 
-function ExploreTab({ deals, onSelectDeal, onScreen }) {
+function DealCard({ deal, hostMatched, onClick }) {
+  const isCustomerGroup = deal.source === 'customer';
+  const isInstant = deal.saleType === 'instant';
+  const typeLabel = isCustomerGroup ? '사용자 그룹' : isInstant ? '즉시 할인' : '사장님 공구';
+  const TypeIcon = isCustomerGroup ? User : Store;
+  const price = getDealPrice(deal);
+
+  return (
+    <button className="deal-card" onClick={onClick}>
+      <img src={deal.image} alt="" />
+      <div className="deal-content">
+        <div className="deal-title-row">
+          <strong>{deal.title}</strong>
+          <span>{isInstant ? '즉시' : deal.deadline}</span>
+        </div>
+        <div className="deal-badges">
+          <span className={isCustomerGroup ? 'type-badge customer' : 'type-badge merchant'}>
+            <TypeIcon size={12} />
+            {typeLabel}
+          </span>
+          {hostMatched && <span className="type-badge host">호스트 모집 완료</span>}
+        </div>
+        <p>{isCustomerGroup ? deal.description : deal.store}</p>
+        <p className="muted-line">
+          <MapPin size={14} />
+          {deal.address} · {deal.distance}
+        </p>
+        {isInstant && deal.eventStart && (
+          <p className="event-time-line">
+            <Clock size={13} />
+            오늘 {deal.eventStart} ~ {deal.eventEnd} 진행
+          </p>
+        )}
+        <Progress current={deal.current} target={deal.target} />
+        <div className="price-row">
+          <span>{isCustomerGroup ? '예상 분담금' : `${deal.discountRate}% 할인`}</span>
+          <strong>{formatWon(price)}</strong>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function ExploreTab({ deals, hostDealIds, onSelectDeal, onScreen }) {
   useScreenAnalytics('customer_explore');
   const urgentDeals = [...deals].sort((a, b) => b.discountRate - a.discountRate);
 
@@ -632,21 +781,12 @@ function ExploreTab({ deals, onSelectDeal, onScreen }) {
 
       <div className="deal-list compact-deal-list">
         {urgentDeals.map((deal) => (
-          <button className="deal-card" key={deal.id} onClick={() => onSelectDeal(deal)}>
-            <img src={deal.image} alt="" />
-            <div className="deal-content">
-              <div className="deal-title-row">
-                <strong>{deal.title}</strong>
-                <span>{deal.deadline}</span>
-              </div>
-              <p>{deal.store}</p>
-              <Progress current={deal.current} target={deal.target} />
-              <div className="price-row">
-                <span>{deal.discountRate}% 할인</span>
-                <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
-              </div>
-            </div>
-          </button>
+          <DealCard
+            key={deal.id}
+            deal={deal}
+            hostMatched={Boolean(deal.hostMatched || hostDealIds.includes(deal.id))}
+            onClick={() => onSelectDeal(deal)}
+          />
         ))}
       </div>
 
@@ -705,7 +845,7 @@ function OrdersTab({ orders, deals, onSelectDeal, onScreen }) {
   );
 }
 
-function FavoritesTab({ favoriteDeals, onSelectDeal, onScreen }) {
+function FavoritesTab({ favoriteDeals, hostDealIds, onSelectDeal, onScreen }) {
   useScreenAnalytics('customer_favorites', { favorite_count: favoriteDeals.length });
 
   return (
@@ -729,24 +869,12 @@ function FavoritesTab({ favoriteDeals, onSelectDeal, onScreen }) {
       ) : (
         <div className="deal-list">
           {favoriteDeals.map((deal) => (
-            <button className="deal-card" key={deal.id} onClick={() => onSelectDeal(deal)}>
-              <img src={deal.image} alt="" />
-              <div className="deal-content">
-                <div className="deal-title-row">
-                  <strong>{deal.title}</strong>
-                  <span>{deal.deadline}</span>
-                </div>
-                <p>{deal.store}</p>
-                <p className="muted-line">
-                  <MapPin size={14} />
-                  {deal.address}
-                </p>
-                <div className="price-row">
-                  <span>{deal.discountRate}% 할인</span>
-                  <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
-                </div>
-              </div>
-            </button>
+            <DealCard
+              key={deal.id}
+              deal={deal}
+              hostMatched={Boolean(deal.hostMatched || hostDealIds.includes(deal.id))}
+              onClick={() => onSelectDeal(deal)}
+            />
           ))}
         </div>
       )}
@@ -825,9 +953,12 @@ function EmptyCustomerState({ icon: Icon, title, body, actionLabel, onAction }) 
   );
 }
 
-function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite }) {
+function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite, hostMatched, onHostApply }) {
   useScreenAnalytics('deal_detail', { deal_id: deal.id, category: deal.category });
   const [sharing, setSharing] = useState(false);
+  const isCustomerGroup = deal.source === 'customer';
+  const isInstant = deal.saleType === 'instant';
+  const canHostApply = !isInstant && !isCustomerGroup && (deal.methods || []).some((method) => ['그룹배달', '픽업'].includes(method));
 
   return (
     <section className="screen detail-screen">
@@ -855,9 +986,16 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite }) {
       <img className="hero-image" src={deal.image} alt="" />
 
       <div className="content-block">
+        <div className="detail-badge-row">
+          <span className={isCustomerGroup ? 'type-badge customer' : 'type-badge merchant'}>
+            {isCustomerGroup ? <User size={12} /> : <Store size={12} />}
+            {isCustomerGroup ? '사용자 호스트 그룹' : isInstant ? '즉시 할인 상품' : '사장님 공동구매'}
+          </span>
+          {hostMatched && <span className="type-badge host">호스트 모집 완료</span>}
+        </div>
         <p className="deadline-line">
           <Clock size={15} />
-          {deal.deadline} 마감
+          {isInstant && deal.eventStart ? `오늘 ${deal.eventStart} ~ ${deal.eventEnd} 즉시 할인` : `${deal.deadline} 마감`}
         </p>
         <h2>{deal.store}</h2>
         <p className="body-copy">{deal.description}</p>
@@ -872,10 +1010,27 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite }) {
         <div className="detail-price-grid">
           <span>정상가</span>
           <del>{formatWon(deal.originalPrice)}</del>
-          <span>공동구매가</span>
-          <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
+          <span>{isCustomerGroup ? '예상 분담금' : isInstant ? '즉시 할인가' : '공동구매가'}</span>
+          <strong>{formatWon(getDealPrice(deal))}</strong>
         </div>
       </div>
+
+      {canHostApply && (
+        <div className="host-apply-box">
+          <div>
+            <strong>{hostMatched ? '호스트 매칭 완료' : '호스트 지원 가능'}</strong>
+            <p>{hostMatched ? '참여자 중 호스트가 확정된 상태로 표시됩니다.' : '픽업 또는 그룹배달을 맡을 참여자를 모집합니다.'}</p>
+          </div>
+          <button
+            className={hostMatched ? 'secondary-button compact-button' : 'primary-button compact-button'}
+            onClick={() => onHostApply(deal)}
+            disabled={hostMatched}
+          >
+            <Users size={16} />
+            {hostMatched ? '확정됨' : '지원하기'}
+          </button>
+        </div>
+      )}
 
       <div className="menu-preview">
         {deal.menu.map((item) => (
@@ -895,17 +1050,17 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite }) {
           }}
         >
           <Users size={18} />
-          그룹방 만들기
+          {isCustomerGroup ? '비슷한 그룹 만들기' : '그룹방 만들기'}
         </button>
         <button
           className="primary-button"
           onClick={() => {
             onScreen('join');
-            track('join_started', { deal_id: deal.id });
+            track(isInstant ? 'instant_checkout_started' : 'join_started', { deal_id: deal.id });
           }}
         >
           <ShoppingBag size={18} />
-          참여하기
+          {isInstant ? '즉시 할인 받기' : '참여하기'}
         </button>
       </div>
 
@@ -963,10 +1118,12 @@ function JoinFlow({ deal, onBack, onScreen, onOrderCreate }) {
     () => Object.fromEntries(deal.menu.map((item, index) => [item.id, index === 0 ? 1 : 0])),
     [deal.id],
   );
+  const receiptMethods = deal.methods?.length ? deal.methods : ['픽업', '배달', '그룹배달', '택배'];
   const [quantities, setQuantities] = useState(initialQuantities);
-  const [method, setMethod] = useState('픽업');
+  const [method, setMethod] = useState(receiptMethods[0]);
   const [time, setTime] = useState('오늘 20:30');
   const [note, setNote] = useState('');
+  const isInstant = deal.saleType === 'instant';
 
   const total = deal.menu.reduce((sum, item) => sum + item.price * quantities[item.id], 0);
   const selectedCount = Object.values(quantities).reduce((sum, value) => sum + value, 0);
@@ -1003,7 +1160,7 @@ function JoinFlow({ deal, onBack, onScreen, onOrderCreate }) {
       <div className="content-block">
         <h2>수령 방식</h2>
         <div className="segmented-control">
-          {['픽업', '배달', '그룹배달'].map((item) => (
+          {receiptMethods.map((item) => (
             <button
               type="button"
               key={item}
@@ -1068,20 +1225,24 @@ function JoinFlow({ deal, onBack, onScreen, onOrderCreate }) {
           }}
         >
           <Check size={18} />
-          참여 완료하기
+          {isInstant ? '구매 신청 완료' : '참여 완료하기'}
         </button>
       </div>
     </section>
   );
 }
 
-function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
+function GroupCreator({ deal, onBack, onScreen, onOrderCreate, onGroupCreate }) {
   useScreenAnalytics('group_creator', { deal_id: deal.id });
   const [form, setForm] = useState({
+    title: deal.source === 'customer' ? deal.title : `${deal.title} 같이 구매해요`,
+    category: deal.category || '음식',
+    description: deal.description || '',
     minPeople: 3,
     maxPeople: 5,
     quantity: 5,
     method: '그룹배달',
+    expectedPrice: getDealPrice(deal),
     deadlineDate: '2026-07-12',
     deadlineTime: '20:00',
     pickupPlace: '아파트 정문 앞',
@@ -1100,12 +1261,12 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
         <button className="icon-button" onClick={onBack} aria-label="뒤로">
           <ArrowLeft size={22} />
         </button>
-        <h1>공동구매 방 생성</h1>
+        <h1>호스트 그룹 생성</h1>
         <Heart size={19} />
       </header>
 
       <div className="content-block">
-        <h2>매장 선택</h2>
+        <h2>참고 상품</h2>
         <div className="selected-store">
           <img src={deal.image} alt="" />
           <div>
@@ -1113,6 +1274,32 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
             <p>{deal.address}</p>
           </div>
         </div>
+      </div>
+
+      <div className="form-stack compact-form">
+        <label>
+          그룹 제목
+          <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
+        </label>
+        <label>
+          카테고리
+          <select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>
+            <option>음식</option>
+            <option>장보기/마트</option>
+            <option>카페</option>
+            <option>식재료</option>
+            <option>생활용품</option>
+            <option>기타</option>
+          </select>
+        </label>
+        <label>
+          간단 설명
+          <textarea
+            value={form.description}
+            onChange={(event) => setForm({ ...form, description: event.target.value })}
+            placeholder="예: 배달비 아끼실 분 같이 주문해요"
+          />
+        </label>
       </div>
 
       <div className="creator-grid">
@@ -1150,7 +1337,16 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
             <option>그룹배달</option>
             <option>픽업</option>
             <option>배달</option>
+            <option>택배</option>
           </select>
+        </label>
+        <label>
+          예상 분담금
+          <input
+            type="number"
+            value={form.expectedPrice}
+            onChange={(event) => setForm({ ...form, expectedPrice: Number(event.target.value) })}
+          />
         </label>
         <label>
           픽업 위치
@@ -1185,17 +1381,14 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
         <button
           className="primary-button"
           onClick={() => {
-            track('group_created', {
-              deal_id: deal.id,
-              ...form,
-            });
+            const createdGroup = onGroupCreate({ ...form, baseDeal: deal });
             onOrderCreate({
               type: 'group',
-              dealId: deal.id,
-              deal,
-              title: deal.title,
-              store: deal.store,
-              total: discountedPrice(deal.originalPrice, deal.discountRate) * form.quantity,
+              dealId: createdGroup.id,
+              deal: createdGroup,
+              title: createdGroup.title,
+              store: createdGroup.store,
+              total: form.expectedPrice * form.quantity,
               method: form.method,
               deadline: `${form.deadlineDate} ${form.deadlineTime}`,
               quantity: form.quantity,
@@ -1203,6 +1396,7 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
             });
             onScreen('complete');
           }}
+          disabled={!form.title || !form.category}
         >
           <Users size={18} />
           그룹방 생성
@@ -1214,13 +1408,15 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
 
 function Completion({ deal, onScreen }) {
   useScreenAnalytics('completion', { deal_id: deal.id });
+  const isInstant = deal.saleType === 'instant';
+  const isCustomerGroup = deal.source === 'customer';
   return (
     <section className="screen complete-screen">
       <div className="success-mark">
         <Check size={34} />
       </div>
-      <h1>공동구매 참여 완료</h1>
-      <p>{deal.store} 공동구매 신청이 저장되었습니다.</p>
+      <h1>{isInstant ? '구매 신청 완료' : isCustomerGroup ? '그룹 참여 완료' : '공동구매 참여 완료'}</h1>
+      <p>{deal.store} {isInstant ? '즉시 할인 신청이' : '공동구매 신청이'} 저장되었습니다.</p>
 
       <div className="completion-summary">
         <div>
@@ -1248,11 +1444,48 @@ function Completion({ deal, onScreen }) {
 function Survey({ onScreen }) {
   useScreenAnalytics('survey');
   const [answer, setAnswer] = useState({
-    intent: '가격이 좋아서',
-    concern: '수령 시간이 맞을지',
-    score: 4,
-    comment: '',
+    reason: '더 저렴하게 구매할 수 있어서',
+    discountExpectation: '15%',
+    hostIntent: '조건이 맞으면 해보고 싶다',
+    preferredCategory: '음식',
+    revisitIntent: '이용할 것 같다',
+    feedback: '',
   });
+  const update = (key, value) => setAnswer((current) => ({ ...current, [key]: value }));
+
+  const surveyGroups = [
+    {
+      key: 'reason',
+      title: '이번 공동구매에 참여한 가장 큰 이유',
+      options: [
+        '더 저렴하게 구매할 수 있어서',
+        '배달비를 아낄 수 있어서',
+        '대용량 상품을 부담 없이 나눠 살 수 있어서',
+        '이웃과 함께 구매하는 것이 편리해서',
+        '새로운 공동구매 서비스라서',
+      ],
+    },
+    {
+      key: 'discountExpectation',
+      title: '참여하고 싶은 할인 혜택',
+      options: ['5%', '10%', '15%', '20%', '30% 이상'],
+    },
+    {
+      key: 'hostIntent',
+      title: '직접 호스트가 되어볼 의향',
+      options: ['적극적으로 해보고 싶다', '조건이 맞으면 해보고 싶다', '참여만 하고 싶다'],
+    },
+    {
+      key: 'preferredCategory',
+      title: '가장 이용해 보고 싶은 공동구매',
+      options: ['음식', '카페/음료', '마트·장보기', '과일·농산물', '생활용품'],
+    },
+    {
+      key: 'revisitIntent',
+      title: 'UPTWOYOU 재이용 의향',
+      options: ['꼭 이용하고 싶다', '이용할 것 같다', '상황에 따라 이용할 것 같다', '아직 잘 모르겠다'],
+    },
+  ];
 
   return (
     <section className="screen">
@@ -1264,51 +1497,29 @@ function Survey({ onScreen }) {
         <span />
       </header>
 
-      <div className="survey-group">
-        <h2>참여 이유</h2>
-        {['가격이 좋아서', '동네 사람들이 같이해서', '수령이 편해서', '서비스가 궁금해서'].map((item) => (
-          <label className="radio-row" key={item}>
-            <input
-              type="radio"
-              checked={answer.intent === item}
-              onChange={() => setAnswer({ ...answer, intent: item })}
-            />
-            {item}
-          </label>
-        ))}
-      </div>
-
-      <div className="survey-group">
-        <h2>망설인 이유</h2>
-        {['수령 시간이 맞을지', '사용 방법이 어려워서', '할인율이 낮아서', '사람이 모일지 몰라서'].map((item) => (
-          <label className="radio-row" key={item}>
-            <input
-              type="radio"
-              checked={answer.concern === item}
-              onChange={() => setAnswer({ ...answer, concern: item })}
-            />
-            {item}
-          </label>
-        ))}
-      </div>
+      {surveyGroups.map((group) => (
+        <div className="survey-group" key={group.key}>
+          <h2>{group.title}</h2>
+          {group.options.map((item) => (
+            <label className="radio-row" key={item}>
+              <input
+                type="radio"
+                checked={answer[group.key] === item}
+                onChange={() => update(group.key, item)}
+              />
+              {item}
+            </label>
+          ))}
+        </div>
+      ))}
 
       <div className="form-stack compact-form">
         <label>
-          만족도 {answer.score}점
-          <input
-            type="range"
-            min="1"
-            max="5"
-            value={answer.score}
-            onChange={(event) => setAnswer({ ...answer, score: Number(event.target.value) })}
-          />
-        </label>
-        <label>
-          의견
+          피드백 및 의견
           <textarea
-            value={answer.comment}
-            onChange={(event) => setAnswer({ ...answer, comment: event.target.value })}
-            placeholder="테스트 의견"
+            value={answer.feedback}
+            onChange={(event) => update('feedback', event.target.value)}
+            placeholder="서비스를 이용하면서 느낀 점이나 개선 의견"
           />
         </label>
       </div>
@@ -1337,6 +1548,7 @@ function OwnerApp({ screen, selectedDeal, onScreen, onCreate, onPreviewCustomer 
 function OwnerForm({ onCreate }) {
   useScreenAnalytics('owner_product_form');
   const [form, setForm] = useState({
+    saleType: 'group',
     storeName: '반하다 테스트 매장',
     productName: '불고기 피자',
     category: '식사',
@@ -1346,6 +1558,8 @@ function OwnerForm({ onCreate }) {
     stock: 10,
     maxQuantity: 20,
     deadline: '오늘 21:00',
+    eventStart: '14:30',
+    eventEnd: '16:00',
     pickupPlace: '매장 앞 픽업대',
     methods: ['픽업', '그룹배달'],
     image: '',
@@ -1396,6 +1610,29 @@ function OwnerForm({ onCreate }) {
           onCreate(payload);
         }}
       >
+        <div className="content-block flush">
+          <h2>판매 방식</h2>
+          <div className="sale-type-grid">
+            {[
+              { id: 'group', title: '공동구매', body: '목표 수량 달성 시 할인' },
+              { id: 'instant', title: '즉시 할인', body: '재고 소진형 바로 할인' },
+            ].map((item) => (
+              <button
+                type="button"
+                key={item.id}
+                className={form.saleType === item.id ? 'sale-type-card active' : 'sale-type-card'}
+                onClick={() => {
+                  setForm({ ...form, saleType: item.id });
+                  track('sale_type_selected', { sale_type: item.id });
+                }}
+              >
+                <strong>{item.title}</strong>
+                <span>{item.body}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <label>
           매장명
           <input value={form.storeName} onChange={(event) => setForm({ ...form, storeName: event.target.value })} />
@@ -1438,23 +1675,25 @@ function OwnerForm({ onCreate }) {
 
         <div className="creator-grid">
           <FieldCounter
-            label="재고"
+            label={form.saleType === 'instant' ? '재고 수량' : '재고'}
             value={form.stock}
             onMinus={() => setForm({ ...form, stock: clamp(form.stock - 1, 0, 999) })}
             onPlus={() => setForm({ ...form, stock: clamp(form.stock + 1, 0, 999) })}
           />
-          <FieldCounter
-            label="공구 최대 수량"
-            value={form.maxQuantity}
-            onMinus={() => setForm({ ...form, maxQuantity: clamp(form.maxQuantity - 1, 1, 999) })}
-            onPlus={() => setForm({ ...form, maxQuantity: clamp(form.maxQuantity + 1, 1, 999) })}
-          />
+          {form.saleType === 'group' && (
+            <FieldCounter
+              label="공구 최대 수량"
+              value={form.maxQuantity}
+              onMinus={() => setForm({ ...form, maxQuantity: clamp(form.maxQuantity - 1, 1, 999) })}
+              onPlus={() => setForm({ ...form, maxQuantity: clamp(form.maxQuantity + 1, 1, 999) })}
+            />
+          )}
         </div>
 
         <div className="content-block flush">
           <h2>수령 방식</h2>
           <div className="method-grid">
-            {['배달', '픽업', '그룹배달'].map((method) => (
+            {['배달', '픽업', '그룹배달', '택배'].map((method) => (
               <button
                 type="button"
                 key={method}
@@ -1468,9 +1707,32 @@ function OwnerForm({ onCreate }) {
         </div>
 
         <label>
-          마감 시간
+          {form.saleType === 'instant' ? '즉시 할인 표시 문구' : '마감 시간'}
           <input value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })} />
         </label>
+        {form.saleType === 'instant' && (
+          <div className="content-block flush">
+            <h2>이벤트 진행 시간</h2>
+            <div className="date-time-row">
+              <label>
+                <Clock size={16} />
+                <input
+                  type="time"
+                  value={form.eventStart}
+                  onChange={(event) => setForm({ ...form, eventStart: event.target.value })}
+                />
+              </label>
+              <label>
+                <Clock size={16} />
+                <input
+                  type="time"
+                  value={form.eventEnd}
+                  onChange={(event) => setForm({ ...form, eventEnd: event.target.value })}
+                />
+              </label>
+            </div>
+          </div>
+        )}
         <label>
           픽업 위치
           <input value={form.pickupPlace} onChange={(event) => setForm({ ...form, pickupPlace: event.target.value })} />
@@ -1491,13 +1753,14 @@ function OwnerForm({ onCreate }) {
 
 function OwnerDone({ deal, onCreateAnother, onPreviewCustomer }) {
   useScreenAnalytics('owner_product_done', { deal_id: deal.id });
+  const isInstant = deal.saleType === 'instant';
   return (
     <section className="screen complete-screen">
       <div className="success-mark">
         <Check size={34} />
       </div>
       <h1>등록 완료</h1>
-      <p>{deal.title} 공동구매가 사용자 리스트에 반영되었습니다.</p>
+      <p>{deal.title} {isInstant ? '즉시 할인 상품이' : '공동구매가'} 사용자 리스트에 반영되었습니다.</p>
       <img className="done-image" src={deal.image} alt="" />
       <div className="completion-summary">
         <div>
@@ -1505,7 +1768,7 @@ function OwnerDone({ deal, onCreateAnother, onPreviewCustomer }) {
           <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
         </div>
         <div>
-          <span>목표 수량</span>
+          <span>{isInstant ? '재고 수량' : '목표 수량'}</span>
           <strong>{deal.target}개</strong>
         </div>
       </div>
@@ -1602,9 +1865,9 @@ function Dashboard({ analyticsReady }) {
             {stats.surveyRows.length === 0 && <p className="empty-state">아직 제출된 설문이 없습니다.</p>}
             {stats.surveyRows.map((row) => (
               <div key={row.id}>
-                <span>{row.intent}</span>
-                <span>{row.concern}</span>
-                <strong>{row.score}점</strong>
+                <span>{row.reason}</span>
+                <span>{row.hostIntent}</span>
+                <strong>{row.revisitIntent}</strong>
               </div>
             ))}
           </div>
@@ -1804,9 +2067,9 @@ function buildStats(events) {
     .slice(-5)
     .map((event) => ({
       id: event.id,
-      intent: event.properties.intent,
-      concern: event.properties.concern,
-      score: event.properties.score,
+      reason: event.properties.reason,
+      hostIntent: event.properties.hostIntent,
+      revisitIntent: event.properties.revisitIntent,
     }));
 
   return {
