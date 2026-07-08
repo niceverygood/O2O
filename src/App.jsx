@@ -44,17 +44,27 @@ import { clamp, discountedPrice, formatWon } from './utils';
 const fallbackImage =
   'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=900&q=80';
 const CREATED_DEALS_KEY = 'o2o_mvp_created_deals';
+const CUSTOMER_ORDERS_KEY = 'o2o_mvp_customer_orders';
+const FAVORITES_KEY = 'o2o_mvp_favorite_deal_ids';
 
-function loadCreatedDeals() {
+function loadJson(key, fallback) {
   try {
-    return JSON.parse(localStorage.getItem(CREATED_DEALS_KEY) || '[]');
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
   } catch {
-    return [];
+    return fallback;
   }
 }
 
+function saveJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function loadCreatedDeals() {
+  return loadJson(CREATED_DEALS_KEY, []);
+}
+
 function saveCreatedDeals(deals) {
-  localStorage.setItem(CREATED_DEALS_KEY, JSON.stringify(deals));
+  saveJson(CREATED_DEALS_KEY, deals);
 }
 
 function normalizeRoute(pathname) {
@@ -69,6 +79,8 @@ function App() {
   const [customerScreen, setCustomerScreen] = useState(profile ? 'list' : 'onboarding');
   const [ownerScreen, setOwnerScreen] = useState('form');
   const [createdDeals, setCreatedDeals] = useState(() => loadCreatedDeals());
+  const [orders, setOrders] = useState(() => loadJson(CUSTOMER_ORDERS_KEY, []));
+  const [favoriteIds, setFavoriteIds] = useState(() => loadJson(FAVORITES_KEY, []));
   const [selectedDeal, setSelectedDeal] = useState(() => loadCreatedDeals()[0] || sampleDeals[0]);
 
   const deals = useMemo(() => [...createdDeals, ...sampleDeals], [createdDeals]);
@@ -129,6 +141,31 @@ function App() {
     setOwnerScreen('done');
   };
 
+  const saveCustomerOrder = (order) => {
+    setOrders((current) => {
+      const next = [
+        {
+          id: `order-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          ...order,
+        },
+        ...current,
+      ];
+      saveJson(CUSTOMER_ORDERS_KEY, next);
+      return next;
+    });
+  };
+
+  const toggleFavorite = (deal) => {
+    setFavoriteIds((current) => {
+      const active = current.includes(deal.id);
+      const next = active ? current.filter((id) => id !== deal.id) : [deal.id, ...current];
+      saveJson(FAVORITES_KEY, next);
+      track('like_clicked', { deal_id: deal.id, active: !active, source: 'customer_tab' });
+      return next;
+    });
+  };
+
   if (route === '/') {
     return <AppLauncher onNavigate={navigateTo} />;
   }
@@ -165,6 +202,8 @@ function App() {
             <CustomerApp
               deals={deals}
               profile={profile}
+              orders={orders}
+              favoriteIds={favoriteIds}
               selectedDeal={selectedDeal}
               screen={customerScreen}
               onProfileSubmit={handleProfileSubmit}
@@ -179,6 +218,8 @@ function App() {
                 });
               }}
               onScreen={setCustomerScreen}
+              onOrderCreate={saveCustomerOrder}
+              onToggleFavorite={toggleFavorite}
             />
           )}
           {route === '/owner' && (
@@ -299,26 +340,52 @@ function StatusBar() {
 function CustomerApp({
   deals,
   profile,
+  orders,
+  favoriteIds,
   selectedDeal,
   screen,
   onProfileSubmit,
   onSelectDeal,
   onScreen,
+  onOrderCreate,
+  onToggleFavorite,
 }) {
   if (!profile || screen === 'onboarding') {
     return <Onboarding onSubmit={onProfileSubmit} />;
   }
 
   if (screen === 'detail') {
-    return <DealDetail deal={selectedDeal} onBack={() => onScreen('list')} onScreen={onScreen} />;
+    return (
+      <DealDetail
+        deal={selectedDeal}
+        onBack={() => onScreen('list')}
+        onScreen={onScreen}
+        isFavorite={favoriteIds.includes(selectedDeal.id)}
+        onToggleFavorite={onToggleFavorite}
+      />
+    );
   }
 
   if (screen === 'join') {
-    return <JoinFlow deal={selectedDeal} onBack={() => onScreen('detail')} onScreen={onScreen} />;
+    return (
+      <JoinFlow
+        deal={selectedDeal}
+        onBack={() => onScreen('detail')}
+        onScreen={onScreen}
+        onOrderCreate={onOrderCreate}
+      />
+    );
   }
 
   if (screen === 'group') {
-    return <GroupCreator deal={selectedDeal} onBack={() => onScreen('detail')} onScreen={onScreen} />;
+    return (
+      <GroupCreator
+        deal={selectedDeal}
+        onBack={() => onScreen('detail')}
+        onScreen={onScreen}
+        onOrderCreate={onOrderCreate}
+      />
+    );
   }
 
   if (screen === 'complete') {
@@ -329,7 +396,36 @@ function CustomerApp({
     return <Survey onScreen={onScreen} />;
   }
 
-  return <DealList deals={deals} profile={profile} onSelectDeal={onSelectDeal} />;
+  if (screen === 'explore') {
+    return <ExploreTab deals={deals} onSelectDeal={onSelectDeal} onScreen={onScreen} />;
+  }
+
+  if (screen === 'orders') {
+    return <OrdersTab orders={orders} deals={deals} onSelectDeal={onSelectDeal} onScreen={onScreen} />;
+  }
+
+  if (screen === 'favorites') {
+    return (
+      <FavoritesTab
+        favoriteDeals={deals.filter((deal) => favoriteIds.includes(deal.id))}
+        onSelectDeal={onSelectDeal}
+        onScreen={onScreen}
+      />
+    );
+  }
+
+  if (screen === 'profile') {
+    return (
+      <ProfileTab
+        profile={profile}
+        orders={orders}
+        favoriteCount={favoriteIds.length}
+        onScreen={onScreen}
+      />
+    );
+  }
+
+  return <DealList deals={deals} profile={profile} onSelectDeal={onSelectDeal} onScreen={onScreen} />;
 }
 
 function Onboarding({ onSubmit }) {
@@ -417,7 +513,7 @@ function Onboarding({ onSubmit }) {
   );
 }
 
-function DealList({ deals, profile, onSelectDeal }) {
+function DealList({ deals, profile, onSelectDeal, onScreen }) {
   useScreenAnalytics('deal_list', { neighborhood: profile.neighborhood });
   const [category, setCategory] = useState('전체');
   const [query, setQuery] = useState('');
@@ -485,14 +581,252 @@ function DealList({ deals, profile, onSelectDeal }) {
         ))}
       </div>
 
-      <BottomNav active="home" />
+      <BottomNav active="home" onSelect={onScreen} />
     </section>
   );
 }
 
-function DealDetail({ deal, onBack, onScreen }) {
+function ExploreTab({ deals, onSelectDeal, onScreen }) {
+  useScreenAnalytics('customer_explore');
+  const urgentDeals = [...deals].sort((a, b) => b.discountRate - a.discountRate);
+
+  return (
+    <section className="screen">
+      <header className="top-nav">
+        <div>
+          <p className="eyebrow">탐색</p>
+          <h1>지금 모이는 공구</h1>
+        </div>
+        <button
+          className="icon-button"
+          aria-label="그룹 만들기"
+          onClick={() => {
+            track('bottom_tab_action_clicked', { action: 'create_group' });
+            onSelectDeal(deals[0]);
+            onScreen('group');
+          }}
+        >
+          <Plus size={20} />
+        </button>
+      </header>
+
+      <div className="insight-strip">
+        <div>
+          <span>근처 진행중</span>
+          <strong>{deals.length}개</strong>
+        </div>
+        <div>
+          <span>최대 할인</span>
+          <strong>{Math.max(...deals.map((deal) => deal.discountRate))}%</strong>
+        </div>
+        <div>
+          <span>그룹배달</span>
+          <strong>가능</strong>
+        </div>
+      </div>
+
+      <div className="section-copy">
+        <h2>추천 공동구매</h2>
+        <p>할인율과 참여 속도가 높은 상품을 먼저 보여줍니다.</p>
+      </div>
+
+      <div className="deal-list compact-deal-list">
+        {urgentDeals.map((deal) => (
+          <button className="deal-card" key={deal.id} onClick={() => onSelectDeal(deal)}>
+            <img src={deal.image} alt="" />
+            <div className="deal-content">
+              <div className="deal-title-row">
+                <strong>{deal.title}</strong>
+                <span>{deal.deadline}</span>
+              </div>
+              <p>{deal.store}</p>
+              <Progress current={deal.current} target={deal.target} />
+              <div className="price-row">
+                <span>{deal.discountRate}% 할인</span>
+                <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <BottomNav active="explore" onSelect={onScreen} />
+    </section>
+  );
+}
+
+function OrdersTab({ orders, deals, onSelectDeal, onScreen }) {
+  useScreenAnalytics('customer_orders', { order_count: orders.length });
+  const dealById = new Map(deals.map((deal) => [deal.id, deal]));
+
+  return (
+    <section className="screen">
+      <header className="top-nav">
+        <div>
+          <p className="eyebrow">내 주문</p>
+          <h1>참여 내역</h1>
+        </div>
+        <ShoppingBag size={22} />
+      </header>
+
+      {orders.length === 0 ? (
+        <EmptyCustomerState
+          icon={ShoppingBag}
+          title="아직 참여 내역이 없습니다"
+          body="공동구매에 참여하면 마감 시간과 수령 방식이 여기에 저장됩니다."
+          actionLabel="공구 보러가기"
+          onAction={() => onScreen('list')}
+        />
+      ) : (
+        <div className="order-card-list">
+          {orders.map((order) => {
+            const deal = dealById.get(order.dealId) || order.deal;
+            return (
+              <button className="order-card" key={order.id} onClick={() => deal && onSelectDeal(deal)}>
+                <div className="order-status-line">
+                  <span>{order.type === 'group' ? '그룹방 생성' : '참여 완료'}</span>
+                  <strong>{order.method}</strong>
+                </div>
+                <h2>{deal?.title || order.title}</h2>
+                <p>{deal?.store || order.store}</p>
+                <div className="order-meta-grid">
+                  <span>수량 {order.selectedCount || order.quantity || 1}개</span>
+                  <span>{formatWon(order.total || discountedPrice(deal?.originalPrice, deal?.discountRate))}</span>
+                  <span>{order.time || order.deadline || deal?.deadline}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <BottomNav active="orders" onSelect={onScreen} />
+    </section>
+  );
+}
+
+function FavoritesTab({ favoriteDeals, onSelectDeal, onScreen }) {
+  useScreenAnalytics('customer_favorites', { favorite_count: favoriteDeals.length });
+
+  return (
+    <section className="screen">
+      <header className="top-nav">
+        <div>
+          <p className="eyebrow">찜</p>
+          <h1>관심 공동구매</h1>
+        </div>
+        <Heart size={22} />
+      </header>
+
+      {favoriteDeals.length === 0 ? (
+        <EmptyCustomerState
+          icon={Heart}
+          title="찜한 공동구매가 없습니다"
+          body="상세 화면의 하트 버튼을 누르면 관심 상품을 다시 볼 수 있습니다."
+          actionLabel="홈으로 이동"
+          onAction={() => onScreen('list')}
+        />
+      ) : (
+        <div className="deal-list">
+          {favoriteDeals.map((deal) => (
+            <button className="deal-card" key={deal.id} onClick={() => onSelectDeal(deal)}>
+              <img src={deal.image} alt="" />
+              <div className="deal-content">
+                <div className="deal-title-row">
+                  <strong>{deal.title}</strong>
+                  <span>{deal.deadline}</span>
+                </div>
+                <p>{deal.store}</p>
+                <p className="muted-line">
+                  <MapPin size={14} />
+                  {deal.address}
+                </p>
+                <div className="price-row">
+                  <span>{deal.discountRate}% 할인</span>
+                  <strong>{formatWon(discountedPrice(deal.originalPrice, deal.discountRate))}</strong>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <BottomNav active="favorites" onSelect={onScreen} />
+    </section>
+  );
+}
+
+function ProfileTab({ profile, orders, favoriteCount, onScreen }) {
+  useScreenAnalytics('customer_profile');
+
+  return (
+    <section className="screen">
+      <header className="top-nav">
+        <div>
+          <p className="eyebrow">마이</p>
+          <h1>테스트 프로필</h1>
+        </div>
+        <User size={22} />
+      </header>
+
+      <div className="profile-card">
+        <div className="profile-avatar">{profile.name.slice(0, 1)}</div>
+        <div>
+          <h2>{profile.name}</h2>
+          <p>{profile.neighborhood} · {profile.testerType}</p>
+        </div>
+      </div>
+
+      <div className="insight-strip">
+        <div>
+          <span>참여</span>
+          <strong>{orders.length}</strong>
+        </div>
+        <div>
+          <span>찜</span>
+          <strong>{favoriteCount}</strong>
+        </div>
+        <div>
+          <span>동의</span>
+          <strong>{profile.consent ? '완료' : '대기'}</strong>
+        </div>
+      </div>
+
+      <div className="profile-menu">
+        <button onClick={() => onScreen('orders')}>
+          <ShoppingBag size={18} />
+          내 주문 보기
+        </button>
+        <button onClick={() => onScreen('favorites')}>
+          <Heart size={18} />
+          찜 목록 보기
+        </button>
+        <button onClick={() => onScreen('survey')}>
+          <MessageCircle size={18} />
+          설문 다시 작성
+        </button>
+      </div>
+
+      <BottomNav active="profile" onSelect={onScreen} />
+    </section>
+  );
+}
+
+function EmptyCustomerState({ icon: Icon, title, body, actionLabel, onAction }) {
+  return (
+    <div className="empty-customer-state">
+      <Icon size={34} />
+      <h2>{title}</h2>
+      <p>{body}</p>
+      <button className="secondary-button" onClick={onAction}>
+        {actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite }) {
   useScreenAnalytics('deal_detail', { deal_id: deal.id, category: deal.category });
-  const [liked, setLiked] = useState(false);
   const [sharing, setSharing] = useState(false);
 
   return (
@@ -507,10 +841,9 @@ function DealDetail({ deal, onBack, onScreen }) {
             <Share2 size={20} />
           </button>
           <button
-            className={liked ? 'icon-button liked' : 'icon-button'}
+            className={isFavorite ? 'icon-button liked' : 'icon-button'}
             onClick={() => {
-              setLiked(!liked);
-              track('like_clicked', { deal_id: deal.id, active: !liked });
+              onToggleFavorite(deal);
             }}
             aria-label="좋아요"
           >
@@ -624,7 +957,7 @@ function ShareSheet({ deal, onClose }) {
   );
 }
 
-function JoinFlow({ deal, onBack, onScreen }) {
+function JoinFlow({ deal, onBack, onScreen, onOrderCreate }) {
   useScreenAnalytics('join_flow', { deal_id: deal.id });
   const initialQuantities = useMemo(
     () => Object.fromEntries(deal.menu.map((item, index) => [item.id, index === 0 ? 1 : 0])),
@@ -719,6 +1052,18 @@ function JoinFlow({ deal, onBack, onScreen }) {
           onClick={() => {
             track('checkout_started', { deal_id: deal.id, total, method, time });
             track('purchase_completed', { deal_id: deal.id, total, method, time, note, selected_count: selectedCount });
+            onOrderCreate({
+              type: 'purchase',
+              dealId: deal.id,
+              deal,
+              title: deal.title,
+              store: deal.store,
+              total,
+              method,
+              time,
+              note,
+              selectedCount,
+            });
             onScreen('complete');
           }}
         >
@@ -730,7 +1075,7 @@ function JoinFlow({ deal, onBack, onScreen }) {
   );
 }
 
-function GroupCreator({ deal, onBack, onScreen }) {
+function GroupCreator({ deal, onBack, onScreen, onOrderCreate }) {
   useScreenAnalytics('group_creator', { deal_id: deal.id });
   const [form, setForm] = useState({
     minPeople: 3,
@@ -843,6 +1188,18 @@ function GroupCreator({ deal, onBack, onScreen }) {
             track('group_created', {
               deal_id: deal.id,
               ...form,
+            });
+            onOrderCreate({
+              type: 'group',
+              dealId: deal.id,
+              deal,
+              title: deal.title,
+              store: deal.store,
+              total: discountedPrice(deal.originalPrice, deal.discountRate) * form.quantity,
+              method: form.method,
+              deadline: `${form.deadlineDate} ${form.deadlineTime}`,
+              quantity: form.quantity,
+              selectedCount: form.quantity,
             });
             onScreen('complete');
           }}
@@ -1364,19 +1721,26 @@ function FieldCounter({ label, value, onMinus, onPlus }) {
   );
 }
 
-function BottomNav({ active }) {
+function BottomNav({ active, onSelect }) {
   const items = [
-    { id: 'home', label: '홈', icon: Home },
-    { id: 'group', label: '탐색', icon: Users },
-    { id: 'order', label: '내 주문', icon: ShoppingBag },
-    { id: 'like', label: '찜', icon: Heart },
-    { id: 'profile', label: '마이', icon: User },
+    { id: 'home', screen: 'list', label: '홈', icon: Home },
+    { id: 'explore', screen: 'explore', label: '탐색', icon: Users },
+    { id: 'orders', screen: 'orders', label: '내 주문', icon: ShoppingBag },
+    { id: 'favorites', screen: 'favorites', label: '찜', icon: Heart },
+    { id: 'profile', screen: 'profile', label: '마이', icon: User },
   ];
 
   return (
     <nav className="bottom-nav">
-      {items.map(({ id, label, icon: Icon }) => (
-        <button key={id} className={active === id ? 'active' : ''}>
+      {items.map(({ id, screen, label, icon: Icon }) => (
+        <button
+          key={id}
+          className={active === id ? 'active' : ''}
+          onClick={() => {
+            track('bottom_tab_clicked', { tab: id });
+            onSelect(screen);
+          }}
+        >
           <Icon size={18} />
           <span>{label}</span>
         </button>

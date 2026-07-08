@@ -78,5 +78,6 @@ export const eventDefinitions = [
   { name: 'group_created', label: '그룹방 생성 완료' },
   { name: 'survey_submitted', label: '설문 제출' },
   { name: 'owner_product_created', label: '사장님 상품 등록' },
+  { name: 'bottom_tab_clicked', label: '하단 탭 클릭' },
   { name: 'csv_exported', label: 'CSV 데이터 추출' },
 ];
