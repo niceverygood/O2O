@@ -706,7 +706,7 @@ function DealList({ deals, profile, hostDealIds, onSelectDeal, onScreen }) {
 function DealCard({ deal, hostMatched, onClick }) {
   const isCustomerGroup = deal.source === 'customer';
   const isInstant = deal.saleType === 'instant';
-  const typeLabel = isCustomerGroup ? '사용자 그룹' : isInstant ? '즉시 할인' : '사장님 공구';
+  const typeLabel = isCustomerGroup ? '사용자 그룹' : isInstant ? '선착순 즉시할인' : '사장님 공구';
   const TypeIcon = isCustomerGroup ? User : Store;
   const price = getDealPrice(deal);
 
@@ -716,7 +716,7 @@ function DealCard({ deal, hostMatched, onClick }) {
       <div className="deal-content">
         <div className="deal-title-row">
           <strong>{deal.title}</strong>
-          <span>{isInstant ? '즉시' : deal.deadline}</span>
+          <span>{isInstant ? '선착순' : deal.deadline}</span>
         </div>
         <div className="deal-badges">
           <span className={isCustomerGroup ? 'type-badge customer' : 'type-badge merchant'}>
@@ -1004,13 +1004,13 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite, host
         <div className="detail-badge-row">
           <span className={isCustomerGroup ? 'type-badge customer' : 'type-badge merchant'}>
             {isCustomerGroup ? <User size={12} /> : <Store size={12} />}
-            {isCustomerGroup ? '사용자 호스트 그룹' : isInstant ? '즉시 할인 상품' : '사장님 공동구매'}
+            {isCustomerGroup ? '사용자 호스트 그룹' : isInstant ? '선착순 즉시할인 상품' : '사장님 공동구매'}
           </span>
           {hostMatched && <span className="type-badge host">호스트 모집 완료</span>}
         </div>
         <p className="deadline-line">
           <Clock size={15} />
-          {isInstant && deal.eventStart ? `오늘 ${deal.eventStart} ~ ${deal.eventEnd} 즉시 할인` : `${deal.deadline} 마감`}
+          {isInstant && deal.eventStart ? `오늘 ${deal.eventStart} ~ ${deal.eventEnd} 선착순 즉시할인` : `${deal.deadline} 마감`}
         </p>
         <h2>{deal.store}</h2>
         <p className="body-copy">{deal.description}</p>
@@ -1025,7 +1025,7 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite, host
         <div className="detail-price-grid">
           <span>정상가</span>
           <del>{formatWon(deal.originalPrice)}</del>
-          <span>{isCustomerGroup ? '예상 분담금' : isInstant ? '즉시 할인가' : '공동구매가'}</span>
+          <span>{isCustomerGroup ? '예상 분담금' : isInstant ? '선착순 할인가' : '공동구매가'}</span>
           <strong>{formatWon(getDealPrice(deal))}</strong>
         </div>
       </div>
@@ -1075,7 +1075,7 @@ function DealDetail({ deal, onBack, onScreen, isFavorite, onToggleFavorite, host
           }}
         >
           <ShoppingBag size={18} />
-          {isInstant ? '즉시 할인 받기' : '참여하기'}
+          {isInstant ? '선착순 할인 받기' : '참여하기'}
         </button>
       </div>
 
@@ -1449,7 +1449,7 @@ function Completion({ deal, onScreen }) {
         <Check size={34} />
       </div>
       <h1>{isInstant ? '구매 신청 완료' : isCustomerGroup ? '그룹 참여 완료' : '공동구매 참여 완료'}</h1>
-      <p>{deal.store} {isInstant ? '즉시 할인 신청이' : '공동구매 신청이'} 저장되었습니다.</p>
+      <p>{deal.store} {isInstant ? '선착순 즉시할인 신청이' : '공동구매 신청이'} 저장되었습니다.</p>
 
       <div className="completion-summary">
         <div>
@@ -1648,7 +1648,7 @@ function OwnerForm({ onCreate }) {
           <div className="sale-type-grid">
             {[
               { id: 'group', title: '공동구매', body: '목표 수량 달성 시 할인' },
-              { id: 'instant', title: '즉시 할인', body: '재고 소진형 바로 할인' },
+              { id: 'instant', title: '선착순 즉시할인', body: '재고 소진형 바로 할인' },
             ].map((item) => (
               <button
                 type="button"
@@ -1740,7 +1740,7 @@ function OwnerForm({ onCreate }) {
         </div>
 
         <label>
-          {form.saleType === 'instant' ? '즉시 할인 표시 문구' : '마감 시간'}
+          {form.saleType === 'instant' ? '선착순 즉시할인 표시 문구' : '마감 시간'}
           <input value={form.deadline} onChange={(event) => setForm({ ...form, deadline: event.target.value })} />
         </label>
         {form.saleType === 'instant' && (
@@ -1793,7 +1793,7 @@ function OwnerDone({ deal, onCreateAnother, onPreviewCustomer }) {
         <Check size={34} />
       </div>
       <h1>등록 완료</h1>
-      <p>{deal.title} {isInstant ? '즉시 할인 상품이' : '공동구매가'} 사용자 리스트에 반영되었습니다.</p>
+      <p>{deal.title} {isInstant ? '선착순 즉시할인 상품이' : '공동구매가'} 사용자 리스트에 반영되었습니다.</p>
       <img className="done-image" src={deal.image} alt="" />
       <div className="completion-summary">
         <div>
