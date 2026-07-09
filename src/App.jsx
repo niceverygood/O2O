@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { eventDefinitions, sampleCommunityGroups, sampleDeals } from './data';
 import {
+  clearProfile,
   clearEvents,
   exportEventsCsv,
   getEvents,
@@ -119,6 +120,13 @@ function App() {
     });
   };
 
+  const handleLogout = () => {
+    clearProfile();
+    setProfile(null);
+    setCustomerScreen('onboarding');
+    track('profile_logged_out', {});
+  };
+
   const addOwnerDeal = (ownerProduct) => {
     const deal = {
       id: `owner-${Date.now()}`,
@@ -177,7 +185,7 @@ function App() {
       current: 1,
       target: Number(draft.maxPeople),
       likes: 0,
-      image: draft.baseDeal.image || fallbackImage,
+      image: draft.image || draft.baseDeal.image || fallbackImage,
       menu: [
         {
           id: `customer-menu-${Date.now()}`,
@@ -294,6 +302,7 @@ function App() {
               onGroupCreate={createCustomerGroup}
               onToggleFavorite={toggleFavorite}
               onHostApply={applyHost}
+              onLogout={handleLogout}
             />
           )}
           {route === '/owner' && (
@@ -426,6 +435,7 @@ function CustomerApp({
   onGroupCreate,
   onToggleFavorite,
   onHostApply,
+  onLogout,
 }) {
   if (!profile || screen === 'onboarding') {
     return <Onboarding onSubmit={onProfileSubmit} />;
@@ -510,6 +520,7 @@ function CustomerApp({
         orders={orders}
         favoriteCount={favoriteIds.length}
         onScreen={onScreen}
+        onLogout={onLogout}
       />
     );
   }
@@ -532,7 +543,7 @@ function Onboarding({ onSubmit }) {
     phone: '',
     neighborhood: '판교',
     testerType: '사용자',
-    consent: true,
+    consent: false,
   });
 
   const disabled = !form.name || !form.phone || !form.consent;
@@ -599,7 +610,7 @@ function Onboarding({ onSubmit }) {
             checked={form.consent}
             onChange={(event) => setForm({ ...form, consent: event.target.checked })}
           />
-          테스트 행동 데이터 수집 동의
+          개인정보 수집 및 테스트 행동 데이터 수집 동의
         </label>
         <button className="primary-button" type="submit" disabled={disabled}>
           <Check size={18} />
@@ -884,7 +895,7 @@ function FavoritesTab({ favoriteDeals, hostDealIds, onSelectDeal, onScreen }) {
   );
 }
 
-function ProfileTab({ profile, orders, favoriteCount, onScreen }) {
+function ProfileTab({ profile, orders, favoriteCount, onScreen, onLogout }) {
   useScreenAnalytics('customer_profile');
 
   return (
@@ -932,6 +943,10 @@ function ProfileTab({ profile, orders, favoriteCount, onScreen }) {
         <button onClick={() => onScreen('survey')}>
           <MessageCircle size={18} />
           설문 다시 작성
+        </button>
+        <button onClick={onLogout}>
+          <X size={18} />
+          로그아웃
         </button>
       </div>
 
@@ -1238,6 +1253,7 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate, onGroupCreate }) 
     title: deal.source === 'customer' ? deal.title : `${deal.title} 같이 구매해요`,
     category: deal.category || '음식',
     description: deal.description || '',
+    image: '',
     minPeople: 3,
     maxPeople: 5,
     quantity: 5,
@@ -1253,6 +1269,14 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate, onGroupCreate }) 
 
   const updateNumber = (key, delta, min, max) => {
     setForm((current) => ({ ...current, [key]: clamp(current[key] + delta, min, max) }));
+  };
+
+  const handleImage = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setForm((current) => ({ ...current, image: reader.result }));
+    reader.readAsDataURL(file);
+    track('group_image_uploaded', { file_type: file.type, size: file.size });
   };
 
   return (
@@ -1274,6 +1298,15 @@ function GroupCreator({ deal, onBack, onScreen, onOrderCreate, onGroupCreate }) 
             <p>{deal.address}</p>
           </div>
         </div>
+      </div>
+
+      <div className="group-image-uploader">
+        <img src={form.image || deal.image} alt="" />
+        <label className="secondary-button">
+          <Upload size={18} />
+          그룹 이미지 변경
+          <input type="file" accept="image/*" onChange={(event) => handleImage(event.target.files?.[0])} />
+        </label>
       </div>
 
       <div className="form-stack compact-form">

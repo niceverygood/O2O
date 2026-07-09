@@ -38,6 +38,10 @@ export function saveProfile(profile) {
   localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
 }
 
+export function clearProfile() {
+  localStorage.removeItem(PROFILE_KEY);
+}
+
 export function initAnalytics() {
   const key = import.meta.env.VITE_POSTHOG_KEY;
   const host = import.meta.env.VITE_POSTHOG_HOST || 'https://app.posthog.com';

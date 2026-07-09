@@ -1160,6 +1160,31 @@ button:disabled {
   font-size: 13px;
 }
 
+.group-image-uploader {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.group-image-uploader img {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e5e7eb;
+}
+
+.group-image-uploader label {
+  width: 100%;
+}
+
+.group-image-uploader input[type="file"] {
+  display: none;
+}
+
 .survey-group {
   padding: 18px 0;
   border-bottom: 1px solid var(--line);

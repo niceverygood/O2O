@@ -141,6 +141,7 @@ export const sampleCommunityGroups = [
 
 export const eventDefinitions = [
   { name: 'profile_submitted', label: '테스트 회원정보 입력' },
+  { name: 'profile_logged_out', label: '테스트 로그아웃' },
   { name: 'screen_view', label: '화면 방문' },
   { name: 'screen_dwell', label: '화면별 체류시간' },
   { name: 'open_listing', label: '공동구매 상세 진입' },
@@ -153,6 +154,7 @@ export const eventDefinitions = [
   { name: 'checkout_started', label: '신청 완료 버튼 클릭' },
   { name: 'purchase_completed', label: '공동구매 참여 완료' },
   { name: 'group_created', label: '그룹방 생성 완료' },
+  { name: 'group_image_uploaded', label: '사용자 그룹 이미지 변경' },
   { name: 'host_applied', label: '호스트 지원' },
   { name: 'survey_submitted', label: '설문 제출' },
   { name: 'owner_product_created', label: '사장님 상품 등록' },
